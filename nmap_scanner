@@ -1,0 +1,129 @@
+import subprocess
+import datetime
+import csv
+import re
+
+
+def write_log(target, scan_args, result_status):
+    """
+    Logger to keep track of scans.
+    """
+    time_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    with open("scan_history.log", "a") as log_file:
+        log_file.write(f"[{time_now}] TARGET={target} | SCAN={scan_args} | STATUS={result_status}\n")
+
+
+def is_nmap_available():
+    """check to see if nmap is installed and accessible."""
+    try:
+        subprocess.run(['nmap', '--version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def parse_nmap_output(output_text, target):
+    """
+    Pulls useful infomation from raw nmap output.
+    Also prints it and stores it in a CSV.
+    """
+    print("\nScan Results")
+    print("-" * 45)
+    print(f"{'PORT':<12}{'STATE':<10}{'SERVICE':<15}")
+
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    lines = output_text.splitlines()
+
+    entries_found = False
+
+    with open("nmap_scan_results.csv", "a", newline="") as file:
+        csv_writer = csv.writer(file)
+
+        for line in lines:
+            # Looking for lines like: 80/tcp  open  http
+            match = re.match(r'^(\d+/(tcp|udp))\s+(\w+)\s+(.+)$', line.strip())
+
+            if match:
+                port, _, state, service = match.groups()
+
+                # Print for terminal (useful for screenshots)
+                print(f"{port:<12}{state:<10}{service:<15}")
+
+                # Save into CSV for later analysis
+                csv_writer.writerow([timestamp, target, port, state, service])
+
+                entries_found = True
+
+    if not entries_found:
+        print("No open ports found (or host might be down).")
+
+    print("-" * 45)
+
+
+def start_nmap_scan():
+    print("=== Simple Nmap Scanner ===")
+
+    if not is_nmap_available():
+        print("Nmap is not installed or not in PATH. Please install it first.")
+        return
+
+    target = input("Enter target IP / range: ").strip()
+
+    print("\nChoose scan type:")
+    print("1 -> Host Discovery")
+    print("2 -> Port Scan (1-1000)")
+    print("3 -> Service Version Scan")
+    print("4 -> OS Detection (needs admin)")
+    print("5 -> Custom Port Scan")
+
+    user_choice = input("Your choice: ").strip()
+
+    scan_options = {
+        '1': ['-sn'],
+        '2': ['-p', '1-1000'],
+        '3': ['-sV'],
+        '4': ['-O'],
+        '5': ['-p']
+    }
+
+    # Default fallback is a fast scan if required
+    command = ['nmap'] + scan_options.get(user_choice, ['-F'])
+
+    if user_choice == '5':
+        custom_ports = input("Enter ports (example: 22,80 or 1-500): ")
+        command.append(custom_ports)
+
+    command.append(target)
+
+    print("\nRunning scan... hang tight ⏳")
+
+    try:
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=300
+        )
+
+        if result.returncode == 0:
+            write_log(target, command, "SUCCESS")
+            parse_nmap_output(result.stdout, target)
+            print("\nSaved results to nmap_scan_results.csv")
+
+        else:
+            print("Something went wrong:")
+            print(result.stderr)
+            write_log(target, command, "FAILED")
+
+    except subprocess.TimeoutExpired:
+        print("Scan took too long and was stopped.")
+        write_log(target, command, "TIMEOUT")
+
+    except Exception as err:
+        print(f"Unexpected error: {err}")
+
+
+if __name__ == "__main__":
+    start_nmap_scan()
