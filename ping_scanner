@@ -1,0 +1,108 @@
+import subprocess
+import platform
+import re
+import csv
+import datetime
+
+
+#  a simple logger so I can see what happened later
+def log_message(message):
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    with open("ping_log.txt", "a") as file:
+        file.write(f"[{current_time}] {message}\n")
+
+
+def ping_host(target):
+    """
+    Runs a single ping and tries to get response time.
+    Works for both Windows and Linux/Mac.
+    """
+    
+    # figure out which OS we are on
+    system_name = platform.system().lower()
+    ping_flag = "-n" if system_name == "windows" else "-c"
+
+    try:
+        # running only 1 ping so it stays fast
+        result = subprocess.run(
+            ['ping', ping_flag, '1', target],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode == 0:
+            # try to extract time from output
+            time_data = re.search(r'time[=<]([\d.]+)', result.stdout)
+
+            if time_data:
+                response_time = time_data.group(1) + "ms"
+            else:
+                response_time = "N/A"
+
+            log_message(f"{target} is reachable ({response_time})")
+            return "Reachable", response_time
+
+        else:
+            log_message(f"{target} is not reachable")
+            return "Unreachable", "N/A"
+
+    except Exception as err:
+        # catching any random errors so program doesn't crash
+        log_message(f"Error while scanning {target}: {err}")
+        return "Error", "N/A"
+
+
+if __name__ == "__main__":
+    print("=== Simple Ping Tool ===")
+
+    user_choice = input("Do you want to ping one host? (y/n): ").strip().lower()
+
+    results = []
+
+    if user_choice == 'y':
+        host = input("Enter IP or hostname: ").strip()
+
+        status, time_taken = ping_host(host)
+
+        print(f"\nHost: {host}")
+        print(f"Status: {status}")
+        print(f"Response Time: {time_taken}")
+
+        results.append({
+            "Host": host,
+            "Status": status,
+            "Time": time_taken
+        })
+
+    else:
+        # basic range scan (kept small so it doesn't take forever)
+        base_ip = input("Enter network prefix (example: 192.168.1): ").strip()
+
+        print(f"\nScanning {base_ip}.1 to {base_ip}.10 ...\n")
+
+        for i in range(1, 11):
+            ip = f"{base_ip}.{i}"
+
+            status, time_taken = ping_host(ip)
+
+            # only showing active hosts to keep output clean
+            if status == "Reachable":
+                print(f"[+] {ip} -> {time_taken}")
+
+                results.append({
+                    "Host": ip,
+                    "Status": status,
+                    "Time": time_taken
+                })
+
+    # saving results so I can check later
+    if results:
+        with open("ping_scan_results.csv", "w", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=["Host", "Status", "Time"])
+            writer.writeheader()
+            writer.writerows(results)
+
+        print("\nResults saved to ping_scan_results.csv")
